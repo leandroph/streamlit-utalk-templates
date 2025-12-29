@@ -102,14 +102,24 @@ def create_template(label, category, content, variables):
 
         return MockResponse()
 
+
 def delete_template(template_id):
-    """Remove um template pelo ID"""
+    """Remove um template pelo ID, enviando as credenciais da organização"""
     url = f"https://app-utalk.umbler.com/api/v1/templates/{template_id}"
+
+    # --- CORREÇÃO: Adicionamos os parâmetros obrigatórios ---
+    params = {
+        "organizationId": ORG_ID,
+        "channelId": CHANNEL_ID
+    }
+
     try:
-        response = requests.delete(url, headers=HEADERS)
+        # Agora o requests manda o ID da organização junto com o comando DELETE
+        response = requests.delete(url, headers=HEADERS, params=params)
         return response
     except Exception as e:
         class MockResponse:
             status_code = 500
             text = str(e)
+
         return MockResponse()
