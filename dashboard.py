@@ -11,50 +11,96 @@ st.title("🤖 Gerenciador WhatsApp - Umbler uTalk")
 # MENU EDITADO: Removemos a opção de Chats
 menu = st.sidebar.radio("Navegação", ["Templates", "Criar Template"])
 
+
+# ... (início do código, imports, etc...)
+
 # ==============================================================================
-# 📄 ABA 1: LISTAR TEMPLATES
+# 🆕 FUNÇÃO PARA A JANELA MODAL (Coloque isso logo após os imports ou antes do menu)
+# ==============================================================================
+@st.dialog("Detalhes do Template")
+def show_template_details(item):
+    st.subheader(f"{item['label']}")
+
+    # Status com cor
+    cor_status = "green" if item['status'] == "APPROVED" else "red" if item['status'] == "REJECTED" else "orange"
+    st.markdown(f"**Status:** :{cor_status}[{item['status']}]")
+    st.markdown(f"**Categoria:** {item['category']}")
+    st.markdown(f"**ID:** `{item['id']}`")
+
+    st.divider()
+    st.markdown("### 📝 Mensagem Completa")
+    # Usa code block para facilitar a leitura e cópia
+    st.code(item['content'], language="markdown")
+
+    # Mostra variáveis se existirem na string (só visualmente)
+    if "{{" in item['content']:
+        st.info("ℹ️ Este template contém variáveis dinâmicas.")
+
+
+# ... (Configuração da página, Título e Menu) ...
+
+# ==============================================================================
+# 📄 ABA 1: LISTAR TEMPLATES (ATUALIZADA)
 # ==============================================================================
 if menu == "Templates":
     st.header("📂 Templates Cadastrados")
 
+    # Botão de atualizar
     if st.button("🔄 Atualizar Lista"):
-        with st.spinner("Baixando templates..."):
-            templates = get_templates()
+        st.cache_data.clear()  # Limpa cache se houver, para forçar atualização
+        st.rerun()
 
-            if templates:
-                # Criando um DataFrame
-                df = pd.DataFrame(templates)
+    # Carrega dados
+    with st.spinner("Baixando templates..."):
+        templates = get_templates()
 
-                # --- 🆕 ORDENAÇÃO (DO MAIS RECENTE PARA O ANTIGO) ---
-                # Verifica se existe a coluna de data e ordena
-                df = pd.DataFrame(templates)
+        if templates:
+            df = pd.DataFrame(templates)
 
-                if 'createdAtUTC' in df.columns:
-                    # Adicionamos format='mixed' para ele entender o "Z" e ISO8601
-                    df['createdAtUTC'] = pd.to_datetime(df['createdAtUTC'], format='mixed')
+            # 1. TRATAMENTO E ORDENAÇÃO
+            if 'createdAtUTC' in df.columns:
+                df['createdAtUTC'] = pd.to_datetime(df['createdAtUTC'], format='mixed')
+                df = df.sort_values(by='createdAtUTC', ascending=False)
 
-                    # Ordena: Mais recentes primeiro
-                    df = df.sort_values(by='createdAtUTC', ascending=False)
-                # ------------------------
+            # ⚠️ IMPORTANTE: Resetar o índice para que o clique na linha 0 pegue o item 0 correto
+            df = df.reset_index(drop=True)
 
-                cols_preferidas = ['label', 'status', 'category', 'createdAtUTC', 'id', 'content']
+            # 2. PREPARAÇÃO VISUAL
+            cols_preferidas = ['label', 'status', 'category', 'createdAtUTC', 'id', 'content']
+            cols_finais = [c for c in cols_preferidas if c in df.columns]
+            df_show = df[cols_finais]
 
+            if 'createdAtUTC' in df_show.columns:
+                df_show['createdAtUTC'] = df_show['createdAtUTC'].dt.strftime('%d/%m/%Y %H:%M')
 
-                # Filtra apenas as colunas que realmente existem no DataFrame
-                cols_finais = [c for c in cols_preferidas if c in df.columns]
+            # 3. TABELA INTERATIVA (COM SELEÇÃO)
+            st.markdown("👇 **Clique em uma linha para ver os detalhes**")
 
-                df_show = df[cols_finais]
+            event = st.dataframe(
+                df_show,
+                use_container_width=True,
+                selection_mode="single-row",  # Permite selecionar 1 linha
+                on_select="rerun",  # Recarrega a tela ao selecionar
+                hide_index=True  # Esconde a coluna de números 0,1,2...
+            )
 
-                # Formata a data para ficar bonita (Dia/Mês/Ano) se ela existir
-                if 'createdAtUTC' in df_show.columns:
-                    df_show['createdAtUTC'] = df_show['createdAtUTC'].dt.strftime('%d/%m/%Y %H:%M')
+            # 4. LÓGICA DO CLIQUE (ABRIR POP-UP)
+            if len(event.selection.rows) > 0:
+                # Pega o número da linha clicada
+                idx_selecionado = event.selection.rows[0]
 
-                st.dataframe(df_show, use_container_width=True)
+                # Pega os dados completos daquela linha no DataFrame original
+                item_completo = df.iloc[idx_selecionado]
 
-                # Métrica rápida
-                st.metric("Total de Templates", len(templates))
-            else:
-                st.warning("Nenhum template encontrado.")
+                # Abre a janela modal
+                show_template_details(item_completo)
+
+            # Métrica
+            st.metric("Total de Templates", len(templates))
+        else:
+            st.warning("Nenhum template encontrado.")
+
+# ... (Resto do código: Aba Criar Template) ...
 
 # ==============================================================================
 # ✨ ABA 2: CRIAR NOVO TEMPLATE
