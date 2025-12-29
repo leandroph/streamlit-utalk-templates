@@ -40,67 +40,66 @@ def show_template_details(item):
 # ... (Configuração da página, Título e Menu) ...
 
 # ==============================================================================
-# 📄 ABA 1: LISTAR TEMPLATES (ATUALIZADA)
+# 📄 ABA 1: LISTAR TEMPLATES (COM CACHE DE SESSÃO)
 # ==============================================================================
 if menu == "Templates":
     st.header("📂 Templates Cadastrados")
 
-    # Botão de atualizar
+    # Botão de Forçar Atualização
+    # Se clicar aqui, limpamos a memória para ele baixar de novo
     if st.button("🔄 Atualizar Lista"):
-        st.cache_data.clear()  # Limpa cache se houver, para forçar atualização
+        if 'lista_templates' in st.session_state:
+            del st.session_state['lista_templates']
         st.rerun()
 
-    # Carrega dados
-    with st.spinner("Baixando templates..."):
-        templates = get_templates()
+    # --- LÓGICA INTELIGENTE (SÓ BAIXA SE NÃO TIVER NA MEMÓRIA) ---
+    if 'lista_templates' not in st.session_state:
+        with st.spinner("Baixando templates da API... (Aguarde)"):
+            # Baixa e salva na sessão
+            st.session_state['lista_templates'] = get_templates()
 
-        if templates:
-            df = pd.DataFrame(templates)
+    # Recupera os dados da memória (Instantâneo, sem loading!)
+    templates = st.session_state['lista_templates']
 
-            # 1. TRATAMENTO E ORDENAÇÃO
-            if 'createdAtUTC' in df.columns:
-                df['createdAtUTC'] = pd.to_datetime(df['createdAtUTC'], format='mixed')
-                df = df.sort_values(by='createdAtUTC', ascending=False)
+    if templates:
+        df = pd.DataFrame(templates)
 
-            # ⚠️ IMPORTANTE: Resetar o índice para que o clique na linha 0 pegue o item 0 correto
-            df = df.reset_index(drop=True)
+        # 1. TRATAMENTO E ORDENAÇÃO
+        if 'createdAtUTC' in df.columns:
+            df['createdAtUTC'] = pd.to_datetime(df['createdAtUTC'], format='mixed')
+            df = df.sort_values(by='createdAtUTC', ascending=False)
 
-            # 2. PREPARAÇÃO VISUAL
-            cols_preferidas = ['label', 'status', 'category', 'createdAtUTC', 'id', 'content']
-            cols_finais = [c for c in cols_preferidas if c in df.columns]
-            df_show = df[cols_finais]
+        # Resetar o índice para garantir a seleção correta
+        df = df.reset_index(drop=True)
 
-            if 'createdAtUTC' in df_show.columns:
-                df_show['createdAtUTC'] = df_show['createdAtUTC'].dt.strftime('%d/%m/%Y %H:%M')
+        # 2. PREPARAÇÃO VISUAL
+        cols_preferidas = ['label', 'status', 'category', 'createdAtUTC', 'id', 'content']
+        cols_finais = [c for c in cols_preferidas if c in df.columns]
+        df_show = df[cols_finais]
 
-            # 3. TABELA INTERATIVA (COM SELEÇÃO)
-            st.markdown("👇 **Clique em uma linha para ver os detalhes**")
+        if 'createdAtUTC' in df_show.columns:
+            df_show['createdAtUTC'] = df_show['createdAtUTC'].dt.strftime('%d/%m/%Y %H:%M')
 
-            event = st.dataframe(
-                df_show,
-                use_container_width=True,
-                selection_mode="single-row",  # Permite selecionar 1 linha
-                on_select="rerun",  # Recarrega a tela ao selecionar
-                hide_index=True  # Esconde a coluna de números 0,1,2...
-            )
+        # 3. TABELA INTERATIVA
+        st.markdown("👇 **Clique em uma linha para ver os detalhes**")
 
-            # 4. LÓGICA DO CLIQUE (ABRIR POP-UP)
-            if len(event.selection.rows) > 0:
-                # Pega o número da linha clicada
-                idx_selecionado = event.selection.rows[0]
+        event = st.dataframe(
+            df_show,
+            use_container_width=True,
+            selection_mode="single-row",
+            on_select="rerun",
+            hide_index=True
+        )
 
-                # Pega os dados completos daquela linha no DataFrame original
-                item_completo = df.iloc[idx_selecionado]
+        # 4. ABRIR POP-UP
+        if len(event.selection.rows) > 0:
+            idx_selecionado = event.selection.rows[0]
+            item_completo = df.iloc[idx_selecionado]
+            show_template_details(item_completo)
 
-                # Abre a janela modal
-                show_template_details(item_completo)
-
-            # Métrica
-            st.metric("Total de Templates", len(templates))
-        else:
-            st.warning("Nenhum template encontrado.")
-
-# ... (Resto do código: Aba Criar Template) ...
+        st.metric("Total de Templates", len(templates))
+    else:
+        st.warning("Nenhum template encontrado.")
 
 # ==============================================================================
 # ✨ ABA 2: CRIAR NOVO TEMPLATE
