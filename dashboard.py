@@ -22,14 +22,33 @@ if menu == "Templates":
             templates = get_templates()
 
             if templates:
-                # Criando um DataFrame bonito para exibir
+                # Criando um DataFrame
                 df = pd.DataFrame(templates)
-                # Selecionando colunas úteis
-                # Proteção caso alguma coluna não venha na API
-                cols = ['label', 'status', 'category', 'id', 'content']
-                available_cols = [c for c in cols if c in df.columns]
 
-                df_show = df[available_cols]
+                # --- 🆕 ORDENAÇÃO (DO MAIS RECENTE PARA O ANTIGO) ---
+                # Verifica se existe a coluna de data e ordena
+                df = pd.DataFrame(templates)
+
+                if 'createdAtUTC' in df.columns:
+                    # Adicionamos format='mixed' para ele entender o "Z" e ISO8601
+                    df['createdAtUTC'] = pd.to_datetime(df['createdAtUTC'], format='mixed')
+
+                    # Ordena: Mais recentes primeiro
+                    df = df.sort_values(by='createdAtUTC', ascending=False)
+                # ------------------------
+
+                cols_preferidas = ['label', 'status', 'category', 'createdAtUTC', 'id', 'content']
+
+
+                # Filtra apenas as colunas que realmente existem no DataFrame
+                cols_finais = [c for c in cols_preferidas if c in df.columns]
+
+                df_show = df[cols_finais]
+
+                # Formata a data para ficar bonita (Dia/Mês/Ano) se ela existir
+                if 'createdAtUTC' in df_show.columns:
+                    df_show['createdAtUTC'] = df_show['createdAtUTC'].dt.strftime('%d/%m/%Y %H:%M')
+
                 st.dataframe(df_show, use_container_width=True)
 
                 # Métrica rápida
