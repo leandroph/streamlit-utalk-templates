@@ -2,95 +2,81 @@ import requests
 import streamlit as st
 import os
 
-# --- LÓGICA DE IMPORTAÇÃO HÍBRIDA (LOCAL vs NUVEM) ---
-# Tenta importar do arquivo local config.py. 
-# Se não encontrar (porque está no GitHub/Streamlit Cloud), pega dos Segredos.
+# --- LÓGICA DE IMPORTAÇÃO HÍBRIDA ---
 try:
-    # Tenta importar localmente
     import config
 
     TOKEN = config.TOKEN
     ORG_ID = config.ORG_ID
     CHANNEL_ID = config.CHANNEL_ID
 except ImportError:
-    # Estamos na nuvem! (Streamlit Cloud)
-    # Certifique-se de configurar isso no painel "Secrets" do Streamlit
     TOKEN = st.secrets["TOKEN"]
     ORG_ID = st.secrets["ORG_ID"]
     CHANNEL_ID = st.secrets["CHANNEL_ID"]
 
-# --- CONFIGURAÇÃO DOS HEADERS ---
 HEADERS = {
     "Authorization": f"Bearer {TOKEN}",
     "Content-Type": "application/json"
 }
 
 
-# --- FUNÇÕES ---
+# --- FUNÇÕES ATUALIZADAS ---
 
 def get_templates():
-    """Baixa todos os templates e retorna um DataFrame ou Lista"""
+    """
+    Baixa TODOS os templates usando paginação automática.
+    """
     url = "https://app-utalk.umbler.com/api/v1/templates/"
-    params = {
-        "organizationId": ORG_ID,
-        "channelId": CHANNEL_ID,
-        "Take": 100,
-        "Behavior": "GetSliceOnly"
-    }
-    try:
-        response = requests.get(url, headers=HEADERS, params=params)
-        if response.status_code == 200:
-            dados = response.json()
-            return dados.get('items', [])
-    except Exception as e:
-        st.error(f"Erro de conexão ao buscar templates: {e}")
-    return []
+    all_templates = []
+    skip = 0
+    take = 100  # Baixa de 100 em 100
 
+    # Espaço reservado para mostrar progresso no Streamlit (opcional, mas legal)
+    status_text = st.empty()
 
-def get_open_chats():
-    """Baixa os chats abertos"""
-    url = "https://app-utalk.umbler.com/api/v1/chats/"
-    params = {
-        "organizationId": ORG_ID,
-        "ChatState": "Open",
-        "Take": 50,
-        "ChatOrderBy": "LastMessage",
-        "IncludePinneds": "true",
-        "Behavior": "GetSliceOnly"
-    }
-    try:
-        response = requests.get(url, headers=HEADERS, params=params)
-        if response.status_code == 200:
-            dados = response.json()
-            return dados.get('items', [])
-    except Exception as e:
-        st.error(f"Erro de conexão ao buscar chats: {e}")
-    return []
+    while True:
+        params = {
+            "organizationId": ORG_ID,
+            "channelId": CHANNEL_ID,
+            "Take": take,
+            "Skip": skip,
+            "Behavior": "GetSliceOnly"
+        }
 
+        try:
+            # Mostra que está carregando (útil se tiver muitos templates)
+            status_text.text(f"⏳ Baixando templates... Já foram {len(all_templates)}")
 
-def get_chat_messages(chat_id):
-    """Baixa mensagens de um chat específico usando filtro por ID"""
-    url = "https://app-utalk.umbler.com/api/v1/messages/"
+            response = requests.get(url, headers=HEADERS, params=params)
 
-    # Baixa até 100 mensagens para não ficar lento no front
-    params = {
-        "organizationId": ORG_ID,
-        "ChatId": chat_id,
-        "Take": 100,
-        "Skip": 0,
-        "Behavior": "GetSliceOnly"
-    }
-    try:
-        response = requests.get(url, headers=HEADERS, params=params)
-        if response.status_code == 200:
-            dados = response.json()
-            msgs = dados.get('items', []) if isinstance(dados, dict) else dados
-            # Ordena cronologicamente para o chat (Antigas -> Novas)
-            msgs.sort(key=lambda x: x.get('createdAtUTC', ''))
-            return msgs
-    except Exception as e:
-        st.error(f"Erro ao baixar mensagens: {e}")
-    return []
+            if response.status_code == 200:
+                dados = response.json()
+                items = dados.get('items', [])
+
+                # Se não veio nada, acabou a lista
+                if not items:
+                    break
+
+                # Adiciona os itens novos na lista geral
+                all_templates.extend(items)
+
+                # Prepara o pulo para a próxima página
+                skip += len(items)
+
+                # Se vieram menos itens do que pedimos (menos de 100), chegamos no fim
+                if len(items) < take:
+                    break
+            else:
+                st.error(f"Erro na API: {response.status_code} - {response.text}")
+                break
+
+        except Exception as e:
+            st.error(f"Erro de conexão: {e}")
+            break
+
+    # Limpa a mensagem de carregamento
+    status_text.empty()
+    return all_templates
 
 
 def create_template(label, category, content, variables):
@@ -110,7 +96,6 @@ def create_template(label, category, content, variables):
         response = requests.post(url, headers=HEADERS, json=payload)
         return response
     except Exception as e:
-        # Retorna um objeto fake com status de erro para não quebrar o dashboard
         class MockResponse:
             status_code = 500
             text = str(e)
