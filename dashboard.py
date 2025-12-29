@@ -27,22 +27,29 @@ def show_template_details(item):
     st.divider()
 
     # Botão de Ação: EDITAR / CLONAR
-    # Nota: st.button ainda aceita use_container_width na maioria das versões,
-    # mas se der aviso nele também, pode remover o parâmetro.
     if st.button("✏️ Editar / Usar como Modelo", type="primary", use_container_width=True):
 
-        # 1. Prepara as variáveis
-        var_str = ""
+        # 1. Prepara a lista de variáveis para a tabela
+        lista_vars = []
         variaveis = item.get('variables')
         if isinstance(variaveis, list):
-            lista_nomes = [v.get('name') for v in variaveis if v.get('name')]
-            var_str = ", ".join(lista_nomes)
+            for v in variaveis:
+                lista_vars.append({
+                    "Nome": v.get("name", ""),
+                    "Exemplo": v.get("example", "")
+                })
 
         # 2. Preenche memória
         st.session_state['form_nome'] = item['label']
         st.session_state['form_cat'] = item.get('category', 'MARKETING')
         st.session_state['form_corpo'] = item.get('content', '')
-        st.session_state['form_vars'] = var_str
+
+        # Salva a lista de variáveis para iniciar a tabela
+        st.session_state['vars_iniciais'] = lista_vars
+
+        # ⚠️ IMPORTANTE: Deleta o estado do editor para forçar ele a carregar os novos dados
+        if "editor_variaveis" in st.session_state:
+            del st.session_state["editor_variaveis"]
 
         # 3. Muda a aba
         st.session_state.navegacao = "Criar Template"
@@ -54,7 +61,7 @@ def show_template_details(item):
     content = item.get('content', '')
     st.code(content, language="markdown")
 
-    # Exibição de Variáveis
+    # Exibição de Variáveis (Visualização apenas)
     variaveis = item.get('variables')
     if isinstance(variaveis, list) and len(variaveis) > 0:
         st.divider()
@@ -64,7 +71,6 @@ def show_template_details(item):
             cols_show = {'name': 'Variável', 'example': 'Exemplo de Conteúdo'}
             cols_existentes = [c for c in cols_show.keys() if c in df_vars.columns]
 
-            # CORREÇÃO 1: width="stretch"
             st.dataframe(
                 df_vars[cols_existentes].rename(columns=cols_show),
                 hide_index=True,
@@ -87,7 +93,6 @@ def show_template_details(item):
                     st.rerun()
                 else:
                     st.error(f"Erro ao excluir: {res.text}")
-
 
 # ==============================================================================
 # 📄 ABA 1: LISTAR TEMPLATES
@@ -156,11 +161,14 @@ if menu == "Templates":
 elif menu == "Criar Template":
     st.header("✨ Novo Template")
 
-    # --- 1. LÓGICA DE LIMPEZA E EXIBIÇÃO DE MENSAGEM ---
+    # --- 1. LÓGICA DE LIMPEZA E SUCESSO ---
     if st.session_state.get('limpar_apos_sucesso'):
         st.session_state.form_nome = ""
         st.session_state.form_corpo = ""
-        st.session_state.form_vars = ""
+        # Limpa também a tabela de variáveis
+        st.session_state.vars_iniciais = []
+        if "editor_variaveis" in st.session_state:
+            del st.session_state["editor_variaveis"]
         st.session_state.limpar_apos_sucesso = False
 
     if st.session_state.get('exibir_sucesso'):
@@ -172,24 +180,16 @@ elif menu == "Criar Template":
         # --- 2. INICIALIZAÇÃO SEGURA ---
     if 'form_nome' not in st.session_state: st.session_state.form_nome = ""
     if 'form_corpo' not in st.session_state: st.session_state.form_corpo = ""
-    if 'form_vars' not in st.session_state: st.session_state.form_vars = ""
+    # Inicializa dados da tabela se não existirem
+    if 'vars_iniciais' not in st.session_state: st.session_state.vars_iniciais = []
 
     opcoes_cat = ["UTILITY", "MARKETING", "AUTHENTICATION"]
     if 'form_cat' not in st.session_state or st.session_state.form_cat not in opcoes_cat:
         st.session_state.form_cat = "MARKETING"
 
-    # --- 3. LÓGICA DE PREENCHIMENTO AUTOMÁTICO ---
+    # --- 3. PREENCHIMENTO AUTOMÁTICO (EDITAR) ---
+    # Essa parte foi migrada para dentro da show_template_details, mas mantemos o cleanup se houver resquício
     if 'edit_data' in st.session_state:
-        dados = st.session_state['edit_data']
-        st.session_state.form_nome = dados['nome']
-        st.session_state.form_cat = dados['categoria']
-        st.session_state.form_corpo = dados['corpo']
-
-        if dados['variaveis']:
-            lista_nomes = [v.get('name') for v in dados['variaveis']]
-            st.session_state.form_vars = ", ".join(lista_nomes)
-
-        st.info(f"✏️ Editando cópia de: **{dados['nome']}**. Altere o nome se quiser criar um novo.")
         del st.session_state['edit_data']
 
     # --- 4. FORMULÁRIO ---
@@ -206,11 +206,38 @@ elif menu == "Criar Template":
         st.info("💡 Dica: Não comece nem termine a frase com variáveis {{n}}.")
 
         st.subheader("Variáveis")
-        var_str = st.text_input("Liste as variáveis separadas por vírgula", key="form_vars")
+        st.markdown("Adicione as variáveis e seus exemplos abaixo:")
+
+        # Prepara o DataFrame inicial
+        df_vars_input = pd.DataFrame(st.session_state.vars_iniciais, columns=["Nome", "Exemplo"])
+
+        # --- TABELA EDITÁVEL (CORRIGIDA) ---
+        edited_df = st.data_editor(
+            df_vars_input,
+            num_rows="dynamic",
+            column_config={
+                # CORREÇÃO: Removemos 'placeholder' e usamos 'help' e 'width'
+                "Nome": st.column_config.TextColumn(
+                    "Nome da Variável",
+                    required=True,
+                    width="medium",
+                    help="Ex: nome_cliente"
+                ),
+                "Exemplo": st.column_config.TextColumn(
+                    "Exemplo de Conteúdo",
+                    required=True,
+                    width="medium",
+                    help="Ex: João Silva"
+                )
+            },
+            use_container_width=True,
+            key="editor_variaveis"
+        )
 
         enviar = st.form_submit_button("🚀 Criar / Atualizar Template")
 
         if enviar:
+            # --- VALIDAÇÃO E ENVIO ---
             erro_encontrado = False
 
             if not nome or not corpo:
@@ -225,12 +252,36 @@ elif menu == "Criar Template":
                 st.error("🚫 O texto NÃO pode terminar com uma variável.")
                 erro_encontrado = True
 
+            # --- 🆕 VALIDAÇÃO DE CONTAGEM DE VARIÁVEIS ---
+            # 1. Conta quantas {{n}} existem no texto (ex: {{1}}, {{2}} = 2 variáveis)
+            vars_no_texto = re.findall(r"\{\{(\d+)\}\}", corpo)
+            qtd_vars_texto = len(
+                set(vars_no_texto))  # Usa set para contar únicos (se usar {{1}} duas vezes conta como 1)
+
+            # 2. Conta quantas linhas válidas tem na tabela
+            # Filtra linhas vazias para não contar errado
+            linhas_validas = edited_df[edited_df["Nome"].str.strip() != ""]
+            qtd_vars_tabela = len(linhas_validas)
+
+            if qtd_vars_texto != qtd_vars_tabela:
+                st.error(
+                    f"❌ Contagem Incorreta: O texto pede {qtd_vars_texto} variáveis, mas você definiu {qtd_vars_tabela} na tabela.")
+                st.info(
+                    f"💡 Dica: Se você usou até {{{{ {qtd_vars_texto} }}}} no texto, a tabela precisa ter exatamente {qtd_vars_texto} linhas preenchidas.")
+                erro_encontrado = True
+            # ---------------------------------------------
+
             if not erro_encontrado:
                 variaveis_payload = []
-                if var_str:
-                    nomes_vars = [v.strip() for v in var_str.split(',')]
-                    for n in nomes_vars:
-                        variaveis_payload.append({"name": n, "example": f"Ex {n}"})
+
+                # Itera sobre as linhas VALIDAS da tabela
+                for index, row in linhas_validas.iterrows():
+                    n = row["Nome"]
+                    e = row["Exemplo"]
+
+                    # Garante que tem exemplo
+                    ex_final = e if (e and pd.notna(e) and str(e).strip() != "") else f"Ex {n}"
+                    variaveis_payload.append({"name": str(n).strip(), "example": str(ex_final).strip()})
 
                 with st.spinner("Enviando para aprovação..."):
                     res = create_template(nome, categoria, corpo, variaveis_payload)
@@ -244,13 +295,21 @@ elif menu == "Criar Template":
                 elif res.status_code == 400:
                     try:
                         erro_data = res.json()
-                        lista_erros = erro_data.get('errors', {}).get('Content', [])
+                        lista_erros = erro_data.get('errors', {}).get('Content', [])  # Tenta pegar erros de conteúdo
+                        erros_gerais = erro_data.get('errors', {})
+
                         if "VariableCannotBeAtTheBeginningOrEnd" in lista_erros:
                             st.error("❌ ERRO DE FORMATAÇÃO (WhatsApp):")
                             st.warning("O texto não pode começar ou terminar com variável {{n}}.")
+
+                        # Tratamento específico para o erro que você teve agora
+                        elif "Variables" in erros_gerais and "NumberOfVariablesIsNotTheSame" in erros_gerais[
+                            "Variables"]:
+                            st.error("❌ Erro de Quantidade: O número de variáveis no texto não bate com a tabela.")
+
                         else:
                             st.error("❌ Erro de Validação da API:")
-                            st.code(res.text, language="json")
+                            st.json(erro_data)  # Mostra o JSON completo para facilitar debug
                     except:
                         st.error(f"❌ Erro 400: {res.text}")
                 else:
