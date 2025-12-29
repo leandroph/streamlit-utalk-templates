@@ -27,8 +27,11 @@ def show_template_details(item):
     st.divider()
 
     # Botão de Ação: EDITAR / CLONAR
+    # Nota: st.button ainda aceita use_container_width na maioria das versões,
+    # mas se der aviso nele também, pode remover o parâmetro.
     if st.button("✏️ Editar / Usar como Modelo", type="primary", use_container_width=True):
-        # 1. Prepara variáveis
+
+        # 1. Prepara as variáveis
         var_str = ""
         variaveis = item.get('variables')
         if isinstance(variaveis, list):
@@ -41,7 +44,7 @@ def show_template_details(item):
         st.session_state['form_corpo'] = item.get('content', '')
         st.session_state['form_vars'] = var_str
 
-        # 3. Muda aba
+        # 3. Muda a aba
         st.session_state.navegacao = "Criar Template"
         st.rerun()
 
@@ -60,21 +63,25 @@ def show_template_details(item):
         if 'name' in df_vars.columns:
             cols_show = {'name': 'Variável', 'example': 'Exemplo de Conteúdo'}
             cols_existentes = [c for c in cols_show.keys() if c in df_vars.columns]
-            st.dataframe(df_vars[cols_existentes].rename(columns=cols_show), hide_index=True, use_container_width=True)
+
+            # CORREÇÃO 1: width="stretch"
+            st.dataframe(
+                df_vars[cols_existentes].rename(columns=cols_show),
+                hide_index=True,
+                width="stretch"
+            )
 
     # --- 🗑️ ZONA DE EXCLUSÃO ---
     st.divider()
     with st.expander("🗑️ Zona de Perigo (Excluir)"):
         st.warning("Atenção: Essa ação não pode ser desfeita.")
 
-        # Usamos uma chave única baseada no ID para o botão não confundir
         if st.button("Confirmar Exclusão", type="primary", key=f"btn_del_{item['id']}"):
             with st.spinner("Excluindo..."):
                 res = delete_template(item['id'])
 
                 if res.status_code == 200 or res.status_code == 204:
                     st.success("Template excluído!")
-                    # Limpa a lista da memória para forçar uma nova busca
                     if 'lista_templates' in st.session_state:
                         del st.session_state['lista_templates']
                     st.rerun()
@@ -83,7 +90,7 @@ def show_template_details(item):
 
 
 # ==============================================================================
-# 📄 ABA 1: LISTAR TEMPLATES (COM CACHE DE SESSÃO)
+# 📄 ABA 1: LISTAR TEMPLATES
 # ==============================================================================
 if menu == "Templates":
     st.header("📂 Templates Cadastrados")
@@ -94,30 +101,28 @@ if menu == "Templates":
             del st.session_state['lista_templates']
         st.rerun()
 
-    # --- LÓGICA INTELIGENTE (SÓ BAIXA SE NÃO TIVER NA MEMÓRIA) ---
+    # --- LÓGICA DE DOWNLOAD ---
     if 'lista_templates' not in st.session_state:
         with st.spinner("Baixando templates da API... (Aguarde)"):
             st.session_state['lista_templates'] = get_templates()
 
-    # Recupera os dados da memória
+    # Recupera dados
     templates = st.session_state['lista_templates']
 
     if templates:
         df = pd.DataFrame(templates)
 
-        # 1. TRATAMENTO E ORDENAÇÃO
+        # 1. TRATAMENTO
         if 'createdAtUTC' in df.columns:
             df['createdAtUTC'] = pd.to_datetime(df['createdAtUTC'], format='mixed')
             df = df.sort_values(by='createdAtUTC', ascending=False)
 
-        # Resetar o índice para garantir a seleção correta
         df = df.reset_index(drop=True)
 
         # 2. PREPARAÇÃO VISUAL
         cols_preferidas = ['label', 'status', 'category', 'createdAtUTC', 'id', 'content']
         cols_finais = [c for c in cols_preferidas if c in df.columns]
 
-        # Adicionado .copy() para evitar o SettingWithCopyWarning
         df_show = df[cols_finais].copy()
 
         if 'createdAtUTC' in df_show.columns:
@@ -126,9 +131,10 @@ if menu == "Templates":
         # 3. TABELA INTERATIVA
         st.markdown("👇 **Clique em uma linha para ver os detalhes**")
 
+        # CORREÇÃO 2: width="stretch" na tabela principal
         event = st.dataframe(
             df_show,
-            use_container_width=True,
+            width="stretch",
             selection_mode="single-row",
             on_select="rerun",
             hide_index=True
@@ -145,28 +151,25 @@ if menu == "Templates":
         st.warning("Nenhum template encontrado.")
 
 # ==============================================================================
-# ✨ ABA 2: CRIAR NOVO TEMPLATE (COM SUCESSO PERSISTENTE)
+# ✨ ABA 2: CRIAR NOVO TEMPLATE
 # ==============================================================================
 elif menu == "Criar Template":
     st.header("✨ Novo Template")
 
     # --- 1. LÓGICA DE LIMPEZA E EXIBIÇÃO DE MENSAGEM ---
-
-    # Primeiro: Limpa os campos se for solicitado
     if st.session_state.get('limpar_apos_sucesso'):
         st.session_state.form_nome = ""
         st.session_state.form_corpo = ""
         st.session_state.form_vars = ""
-        st.session_state.limpar_apos_sucesso = False  # Desliga o marcador de limpeza
+        st.session_state.limpar_apos_sucesso = False
 
-    # Segundo: Exibe a mensagem de sucesso (agora ela sobrevive ao rerun!)
     if st.session_state.get('exibir_sucesso'):
         nome_sucesso = st.session_state.get('ultimo_nome_criado', 'Template')
         st.success(f"✅ Template '{nome_sucesso}' criado com sucesso!")
         st.balloons()
-        st.session_state.exibir_sucesso = False  # Desliga para não aparecer de novo sem querer
+        st.session_state.exibir_sucesso = False
 
-    # --- 2. INICIALIZAÇÃO SEGURA ---
+        # --- 2. INICIALIZAÇÃO SEGURA ---
     if 'form_nome' not in st.session_state: st.session_state.form_nome = ""
     if 'form_corpo' not in st.session_state: st.session_state.form_corpo = ""
     if 'form_vars' not in st.session_state: st.session_state.form_vars = ""
@@ -175,7 +178,7 @@ elif menu == "Criar Template":
     if 'form_cat' not in st.session_state or st.session_state.form_cat not in opcoes_cat:
         st.session_state.form_cat = "MARKETING"
 
-    # --- 3. LÓGICA DE PREENCHIMENTO AUTOMÁTICO (EDITAR) ---
+    # --- 3. LÓGICA DE PREENCHIMENTO AUTOMÁTICO ---
     if 'edit_data' in st.session_state:
         dados = st.session_state['edit_data']
         st.session_state.form_nome = dados['nome']
@@ -191,7 +194,6 @@ elif menu == "Criar Template":
 
     # --- 4. FORMULÁRIO ---
     with st.form("form_template"):
-
         nome = st.text_input("Nome do Template (minúsculo, sem espaços)",
                              key="form_nome",
                              placeholder="ex: lembrete_consulta_v1")
@@ -209,7 +211,6 @@ elif menu == "Criar Template":
         enviar = st.form_submit_button("🚀 Criar / Atualizar Template")
 
         if enviar:
-            # --- VALIDAÇÃO E ENVIO ---
             erro_encontrado = False
 
             if not nome or not corpo:
@@ -235,22 +236,15 @@ elif menu == "Criar Template":
                     res = create_template(nome, categoria, corpo, variaveis_payload)
 
                 if res.status_code in [200, 201]:
-                    # --- SUCESSO! ---
-                    # 1. Ativa a mensagem para a PRÓXIMA tela
                     st.session_state.exibir_sucesso = True
                     st.session_state.ultimo_nome_criado = nome
-
-                    # 2. Ativa a limpeza para a PRÓXIMA tela
                     st.session_state.limpar_apos_sucesso = True
-
-                    # 3. Recarrega a página (Isso limpa o form e mostra a msg lá no topo)
                     st.rerun()
 
                 elif res.status_code == 400:
                     try:
                         erro_data = res.json()
                         lista_erros = erro_data.get('errors', {}).get('Content', [])
-
                         if "VariableCannotBeAtTheBeginningOrEnd" in lista_erros:
                             st.error("❌ ERRO DE FORMATAÇÃO (WhatsApp):")
                             st.warning("O texto não pode começar ou terminar com variável {{n}}.")
@@ -259,6 +253,5 @@ elif menu == "Criar Template":
                             st.code(res.text, language="json")
                     except:
                         st.error(f"❌ Erro 400: {res.text}")
-
                 else:
                     st.error(f"❌ Erro inesperado ({res.status_code}): {res.text}")
