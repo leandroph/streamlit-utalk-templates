@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import re
-from api_functions import get_templates, create_template
+from api_functions import get_templates, create_template, delete_template
 
 # Configuração da Página
 st.set_page_config(page_title="Painel Umbler uTalk", page_icon="💬", layout="wide")
@@ -28,24 +28,21 @@ def show_template_details(item):
 
     # Botão de Ação: EDITAR / CLONAR
     if st.button("✏️ Editar / Usar como Modelo", type="primary", use_container_width=True):
-
-        # 1. Prepara as variáveis (Lista -> String "Nome, CPF")
+        # 1. Prepara variáveis
         var_str = ""
         variaveis = item.get('variables')
         if isinstance(variaveis, list):
             lista_nomes = [v.get('name') for v in variaveis if v.get('name')]
             var_str = ", ".join(lista_nomes)
 
-        # 2. Preenche DIRETAMENTE as chaves do formulário na memória
+        # 2. Preenche memória
         st.session_state['form_nome'] = item['label']
         st.session_state['form_cat'] = item.get('category', 'MARKETING')
         st.session_state['form_corpo'] = item.get('content', '')
         st.session_state['form_vars'] = var_str
 
-        # 3. Muda a aba automaticamente para "Criar Template"
+        # 3. Muda aba
         st.session_state.navegacao = "Criar Template"
-
-        # 4. Recarrega a página para aplicar a mudança
         st.rerun()
 
     st.divider()
@@ -64,6 +61,25 @@ def show_template_details(item):
             cols_show = {'name': 'Variável', 'example': 'Exemplo de Conteúdo'}
             cols_existentes = [c for c in cols_show.keys() if c in df_vars.columns]
             st.dataframe(df_vars[cols_existentes].rename(columns=cols_show), hide_index=True, use_container_width=True)
+
+    # --- 🗑️ ZONA DE EXCLUSÃO ---
+    st.divider()
+    with st.expander("🗑️ Zona de Perigo (Excluir)"):
+        st.warning("Atenção: Essa ação não pode ser desfeita.")
+
+        # Usamos uma chave única baseada no ID para o botão não confundir
+        if st.button("Confirmar Exclusão", type="primary", key=f"btn_del_{item['id']}"):
+            with st.spinner("Excluindo..."):
+                res = delete_template(item['id'])
+
+                if res.status_code == 200 or res.status_code == 204:
+                    st.success("Template excluído!")
+                    # Limpa a lista da memória para forçar uma nova busca
+                    if 'lista_templates' in st.session_state:
+                        del st.session_state['lista_templates']
+                    st.rerun()
+                else:
+                    st.error(f"Erro ao excluir: {res.text}")
 
 
 # ==============================================================================

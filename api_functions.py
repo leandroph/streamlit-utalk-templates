@@ -101,3 +101,15 @@ def create_template(label, category, content, variables):
             text = str(e)
 
         return MockResponse()
+
+def delete_template(template_id):
+    """Remove um template pelo ID"""
+    url = f"https://app-utalk.umbler.com/api/v1/templates/{template_id}"
+    try:
+        response = requests.delete(url, headers=HEADERS)
+        return response
+    except Exception as e:
+        class MockResponse:
+            status_code = 500
+            text = str(e)
+        return MockResponse()
