@@ -12,30 +12,56 @@ st.title("🤖 Gerenciador WhatsApp - Umbler uTalk")
 menu = st.sidebar.radio("Navegação", ["Templates", "Criar Template"])
 
 
-# ... (início do código, imports, etc...)
-
-# ==============================================================================
-# 🆕 FUNÇÃO PARA A JANELA MODAL (Coloque isso logo após os imports ou antes do menu)
-# ==============================================================================
 @st.dialog("Detalhes do Template")
 def show_template_details(item):
     st.subheader(f"{item['label']}")
 
     # Status com cor
-    cor_status = "green" if item['status'] == "APPROVED" else "red" if item['status'] == "REJECTED" else "orange"
-    st.markdown(f"**Status:** :{cor_status}[{item['status']}]")
-    st.markdown(f"**Categoria:** {item['category']}")
-    st.markdown(f"**ID:** `{item['id']}`")
+    status = item.get('status', 'UNKNOWN')
+    cor_status = "green" if status == "APPROVED" else "red" if status == "REJECTED" else "orange"
+    st.markdown(f"**Status:** :{cor_status}[{status}]")
+
+    st.markdown(f"**Categoria:** {item.get('category', '-')}")
+    st.markdown(f"**ID:** `{item.get('id', '-')}`")
 
     st.divider()
     st.markdown("### 📝 Mensagem Completa")
-    # Usa code block para facilitar a leitura e cópia
-    st.code(item['content'], language="markdown")
+    content = item.get('content', '')
+    st.code(content, language="markdown")
 
-    # Mostra variáveis se existirem na string (só visualmente)
-    if "{{" in item['content']:
-        st.info("ℹ️ Este template contém variáveis dinâmicas.")
+    # --- 🆕 EXIBIÇÃO DE VARIÁVEIS ---
+    # Tenta pegar a lista de variáveis do item
+    # (Usa .get para não quebrar se a coluna não existir)
+    variaveis = item.get('variables')
 
+    # Verifica se é uma lista válida e se tem conteúdo
+    if isinstance(variaveis, list) and len(variaveis) > 0:
+        st.divider()
+        st.markdown("### 🧩 Variáveis Configuradas")
+
+        # Cria um DataFramezinho para mostrar bonito na tela
+        df_vars = pd.DataFrame(variaveis)
+
+        # Filtra colunas para mostrar só o que interessa
+        if 'name' in df_vars.columns:
+            # Renomeia para ficar em português
+            cols_show = {'name': 'Variável', 'example': 'Exemplo de Conteúdo'}
+            # Garante que só pega colunas que existem
+            cols_existentes = [c for c in cols_show.keys() if c in df_vars.columns]
+
+            st.dataframe(
+                df_vars[cols_existentes].rename(columns=cols_show),
+                hide_index=True,
+                use_container_width=True
+            )
+        else:
+            # Se a estrutura for diferente do esperado, mostra o JSON cru
+            st.json(variaveis)
+
+    elif "{{" in str(content):
+        # Fallback: Se tem {{ }} no texto mas a API não mandou a lista
+        st.divider()
+        st.warning("⚠️ Variáveis detectadas no texto, mas os detalhes técnicos não foram retornados.")
 
 # ... (Configuração da página, Título e Menu) ...
 
