@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import re
 from api_functions import get_templates, get_open_chats, get_chat_messages, create_template
 
 # Configuração da Página
@@ -108,28 +109,66 @@ elif menu == "Criar Template":
         enviar = st.form_submit_button("🚀 Criar Template")
 
         if enviar:
-            # Validação Local
-            erro_validacao = False
-            if corpo.strip().startswith("{{"):
-                st.error("❌ O texto não pode começar com variável {{...}}")
-                erro_validacao = True
+            # --- 1. VALIDAÇÃO LOCAL (PREVENTIVA) ---
+            # Impede o envio se tiver erros óbvios
+            erro_encontrado = False
 
+            # Verifica campos vazios
             if not nome or not corpo:
-                st.error("❌ Preencha todos os campos obrigatórios.")
-                erro_validacao = True
+                st.error("❌ Preencha o Nome e a Mensagem.")
+                erro_encontrado = True
 
-            if not erro_validacao:
-                # Monta lista de variáveis
+            # REGRA 1: Não começar com {{
+            if corpo.strip().startswith("{{"):
+                st.error("🚫 O texto NÃO pode começar com uma variável.")
+                st.info("💡 Correção: Adicione uma saudação antes. Ex: 'Olá {{1}}...'")
+                erro_encontrado = True
+
+            # REGRA 2: Não terminar com }} (usa Regex para ignorar pontuação final simples)
+            # Verifica se termina com chaves, mesmo que tenha um ponto ou espaço depois.
+            if re.search(r"}}\W*$", corpo.strip()):
+                st.error("🚫 O texto NÃO pode terminar com uma variável.")
+                st.info("💡 Correção: Adicione uma instrução depois. Ex: '...código {{1}}. Não compartilhe.'")
+                erro_encontrado = True
+
+            # Se passou na validação local, envia para a API
+            if not erro_encontrado:
+
+                # Prepara as variáveis
                 variaveis_payload = []
                 if var_str:
                     nomes_vars = [v.strip() for v in var_str.split(',')]
                     for n in nomes_vars:
-                        variaveis_payload.append({"name": n, "example": f"Exemplo {n}"})
+                        variaveis_payload.append({"name": n, "example": f"Ex {n}"})
 
-                # Envia para API
-                res = create_template(nome, categoria, corpo, variaveis_payload)
+                with st.spinner("Enviando para aprovação..."):
+                    res = create_template(nome, categoria, corpo, variaveis_payload)
 
+                # --- 2. TRATAMENTO DA RESPOSTA (REATIVO) ---
                 if res.status_code in [200, 201]:
-                    st.success(f"✅ Template '{nome}' criado com sucesso! ID: {res.json().get('id')}")
+                    st.success(f"✅ Template '{nome}' criado com sucesso!")
+                    st.balloons()  # Efeito visual de festa
+                    st.json(res.json())  # Mostra os dados técnicos se quiser
+
+                elif res.status_code == 400:
+                    # Tenta ler o erro JSON
+                    try:
+                        erro_data = res.json()
+                        lista_erros = erro_data.get('errors', {}).get('Content', [])
+
+                        # Verifica se é o erro específico que você mandou
+                        if "VariableCannotBeAtTheBeginningOrEnd" in lista_erros:
+                            st.error("❌ ERRO DE FORMATAÇÃO (WhatsApp):")
+                            st.warning("O WhatsApp rejeitou porque o texto começa ou termina com uma variável {{n}}.")
+                            st.markdown(
+                                "**Regra de Ouro:** Sempre coloque texto fixo antes da primeira variável e depois da última.")
+                        else:
+                            # Outro erro 400 qualquer
+                            st.error("❌ Erro de Validação da API:")
+                            st.code(res.text, language="json")
+
+                    except:
+                        st.error(f"❌ Erro 400: {res.text}")
+
                 else:
-                    st.error(f"❌ Erro ao criar: {res.text}")
+                    st.error(f"❌ Erro inesperado ({res.status_code}): {res.text}")
