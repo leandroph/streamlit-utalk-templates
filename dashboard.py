@@ -333,7 +333,7 @@ elif menu == "Fechar Conversas":
         st.write("")  # Espaço para alinhar visualmente
         st.write("")
         # Botão para limpar a busca/tela
-        if st.button("❌ Limpar"):
+        if st.button("🔍 Buscar"):
             st.rerun()
 
     # Variável inicial vazia (para não exibir nada se não tiver busca)
