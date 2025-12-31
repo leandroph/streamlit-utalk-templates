@@ -149,30 +149,36 @@ def get_contacts():
     except Exception as e:
         return []
 
-def close_chat(chat_id):
-    def close_chat(contact_id):
-        """
-        Encerra o atendimento fechando as conversas do contato.
-        Rota: DELETE /v1/contacts/{id}?chatAction=Close
-        """
-        # A rota é baseada no ID do CONTATO
-        url = f"https://app-utalk.umbler.com/api/v1/contacts/{contact_id}"
 
-        params = {
-            "organizationId": ORG_ID,
-            "chatAction": "Close"  # Ação mágica que fecha o chat
-        }
+def close_chat(contact_id):
+    """
+    Encerra o atendimento fechando as conversas do contato.
+    Rota: DELETE /v1/contacts/{id}?chatAction=Close
+    """
+    url = f"https://app-utalk.umbler.com/api/v1/contacts/{contact_id}"
 
-        try:
-            # Usamos DELETE conforme a estrutura da documentação sugere (ID a ser excluído)
-            response = requests.delete(url, headers=HEADERS, params=params)
-            return response
-        except Exception as e:
-            class MockResponse:
-                status_code = 500
-                text = str(e)
+    # Parâmetros exigidos pela documentação
+    params = {
+        "organizationId": ORG_ID,
+        "chatAction": "Close"  # Ação "Fechar" conforme sua documentação
+    }
 
-            return MockResponse()
+    try:
+        # Método DELETE conforme "O ID do contato a ser excluído" (caminho)
+        response = requests.delete(url, headers=HEADERS, params=params)
+
+        # --- O SEGREDO ESTÁ AQUI: TEM QUE TER O RETURN ---
+        return response
+
+    except Exception as e:
+        print(f"Erro na função close_chat: {e}")
+
+        # Cria uma resposta falsa para o dashboard não quebrar com 'NoneType'
+        class MockResponse:
+            status_code = 500
+            text = str(e)
+
+        return MockResponse()
 
 
 def search_contact_by_text(query):
