@@ -1,9 +1,32 @@
+"""
+MÓDULO: Funções de API (Backend)
+================================
+
+DESCRIÇÃO:
+    Centraliza todas as comunicações HTTP com a API da Umbler uTalk (WhatsApp Business).
+    Este módulo é agnóstico de interface, ou seja, pode ser usado por CLI, Scripts ou Streamlit.
+
+RESPONSABILIDADES:
+    1. Autenticação e Gerenciamento de Configurações/Segredos.
+    2. CRUD de Templates (HSM) com paginação automática.
+    3. Busca e Manipulação de Contatos e Chats.
+    4. Lógica de "Fechamento Seguro" (Workaround para APIs REST restritivas).
+
+AUTOR: Leandro
+DATA: Dezembro/2025
+"""
+
 import requests
 import streamlit as st
 import os
 import json
+from typing import List, Dict, Union, Any
 
-# --- LÓGICA DE IMPORTAÇÃO HÍBRIDA ---
+# ==============================================================================
+# 🔐 CONFIGURAÇÃO DE AMBIENTE E SEGURANÇA
+# ==============================================================================
+# Lógica Híbrida: Tenta carregar de arquivo local (config.py) para desenvolvimento.
+# Se falhar, assume que está na nuvem (Streamlit Cloud) e usa st.secrets.
 try:
     import config
 
@@ -11,28 +34,38 @@ try:
     ORG_ID = config.ORG_ID
     CHANNEL_ID = config.CHANNEL_ID
 except ImportError:
+    # Fallback para Segredos do Streamlit Cloud
     TOKEN = st.secrets["TOKEN"]
     ORG_ID = st.secrets["ORG_ID"]
     CHANNEL_ID = st.secrets["CHANNEL_ID"]
 
+# Headers padrão para todas as requisições (JSON + Bearer Token)
 HEADERS = {
     "Authorization": f"Bearer {TOKEN}",
     "Content-Type": "application/json"
 }
 
 
-# --- FUNÇÕES ATUALIZADAS ---
+# ==============================================================================
+# 📂 GERENCIAMENTO DE TEMPLATES
+# ==============================================================================
 
-def get_templates():
+def get_templates() -> List[Dict]:
     """
-    Baixa TODOS os templates usando paginação automática.
+    Recupera TODOS os templates cadastrados na conta, lidando com a paginação da API.
+
+    A API da Umbler retorna dados em páginas (fatias). Esta função cria um loop
+    para baixar página por página até que não haja mais registros.
+
+    Returns:
+        List[Dict]: Uma lista contendo todos os objetos de template encontrados.
     """
     url = "https://app-utalk.umbler.com/api/v1/templates/"
     all_templates = []
     skip = 0
-    take = 100  # Baixa de 100 em 100
+    take = 100  # Tamanho do lote (Batch size)
 
-    # Espaço reservado para mostrar progresso no Streamlit (opcional, mas legal)
+    # Elemento de UI para feedback visual (opcional, mas útil em conexões lentas)
     status_text = st.empty()
 
     while True:
@@ -41,12 +74,11 @@ def get_templates():
             "channelId": CHANNEL_ID,
             "Take": take,
             "Skip": skip,
-            "Behavior": "GetSliceOnly"
+            "Behavior": "GetSliceOnly"  # Otimização: Traz apenas a fatia de dados, sem metadados extras
         }
 
         try:
-            # Mostra que está carregando (útil se tiver muitos templates)
-            status_text.text(f"⏳ Baixando templates... Já foram {len(all_templates)}")
+            status_text.text(f"⏳ Sincronizando templates... {len(all_templates)} baixados.")
 
             response = requests.get(url, headers=HEADERS, params=params)
 
@@ -54,35 +86,43 @@ def get_templates():
                 dados = response.json()
                 items = dados.get('items', [])
 
-                # Se não veio nada, acabou a lista
+                # Critério de Parada 1: Lista vazia
                 if not items:
                     break
 
-                # Adiciona os itens novos na lista geral
                 all_templates.extend(items)
+                skip += len(items)  # Avança o cursor para a próxima página
 
-                # Prepara o pulo para a próxima página
-                skip += len(items)
-
-                # Se vieram menos itens do que pedimos (menos de 100), chegamos no fim
+                # Critério de Parada 2: Se veio menos itens que o solicitado, é a última página
                 if len(items) < take:
                     break
             else:
-                st.error(f"Erro na API: {response.status_code} - {response.text}")
+                st.error(f"Erro na API (Templates): {response.status_code} - {response.text}")
                 break
 
         except Exception as e:
-            st.error(f"Erro de conexão: {e}")
+            st.error(f"Falha de conexão ao buscar templates: {e}")
             break
 
-    # Limpa a mensagem de carregamento
-    status_text.empty()
+    status_text.empty()  # Limpa a mensagem de carregamento
     return all_templates
 
 
-def create_template(label, category, content, variables):
-    """Envia o template para criação"""
+def create_template(label: str, category: str, content: str, variables: List[Dict]) -> requests.Response:
+    """
+    Envia uma solicitação para criar um novo template na Umbler/Meta.
+
+    Args:
+        label (str): Nome interno do template (ex: 'aviso_vencimento').
+        category (str): Categoria (MARKETING, UTILITY, AUTHENTICATION).
+        content (str): Texto da mensagem com variáveis {{n}}.
+        variables (List[Dict]): Lista de exemplos [{'name': '1', 'example': 'João'}].
+
+    Returns:
+        requests.Response: Objeto de resposta contendo status e dados (ou erros).
+    """
     url = "https://app-utalk.umbler.com/api/v1/templates/"
+
     payload = {
         "organizationId": ORG_ID,
         "channelId": CHANNEL_ID,
@@ -90,32 +130,37 @@ def create_template(label, category, content, variables):
         "category": category,
         "content": content,
         "variables": variables,
-        "language": "pt_BR",
+        "language": "pt_BR",  # Hardcoded para PT-BR conforme requisito
         "templateType": "Text"
     }
+
     try:
         response = requests.post(url, headers=HEADERS, json=payload)
         return response
     except Exception as e:
+        # Mock de erro para evitar crash no frontend
         class MockResponse:
             status_code = 500
             text = str(e)
 
+            def json(self): return {}
+
         return MockResponse()
 
 
-def delete_template(template_id):
-    """Remove um template pelo ID, enviando as credenciais da organização"""
+def delete_template(template_id: str) -> requests.Response:
+    """
+    Remove um template existente.
+    NOTA: A API exige organizationId e channelId como Query Params no DELETE.
+    """
     url = f"https://app-utalk.umbler.com/api/v1/templates/{template_id}"
 
-    # --- CORREÇÃO: Adicionamos os parâmetros obrigatórios ---
     params = {
         "organizationId": ORG_ID,
         "channelId": CHANNEL_ID
     }
 
     try:
-        # Agora o requests manda o ID da organização junto com o comando DELETE
         response = requests.delete(url, headers=HEADERS, params=params)
         return response
     except Exception as e:
@@ -126,12 +171,14 @@ def delete_template(template_id):
         return MockResponse()
 
 
-# --- NOVAS FUNÇÕES DE CHAT ---
+# ==============================================================================
+# 💬 GERENCIAMENTO DE CHATS E CONTATOS
+# ==============================================================================
 
-def get_contacts():
+def get_contacts() -> List[Dict]:
     """
-    Busca a lista de contatos diretamente.
-    Rota: GET /v1/contacts/
+    Busca os contatos mais recentes da organização (não filtra por status de chat).
+    Útil para listagens gerais.
     """
     url = "https://app-utalk.umbler.com/api/v1/contacts/"
 
@@ -148,25 +195,35 @@ def get_contacts():
             return response.json().get('items', [])
         return []
     except Exception as e:
+        print(f"Erro ao buscar contatos: {e}")
         return []
 
 
-def close_chat_safe(contact_id):
+def close_chat_safe(contact_id: str) -> requests.Response:
     """
-    Versão V9 (Estratégia GET + PUT Completo):
-    Já que PATCH (edição parcial) e DELETE (apagar) são bloqueados:
-    1. Baixamos os dados completos do chat.
-    2. Alteramos 'open' para False na memória.
-    3. Enviamos o objeto INTEIRO de volta com PUT.
+    Encerra um atendimento de forma segura (sem apagar o contato).
+
+    ESTRATÉGIA (Full Update / GET+PUT):
+    Como a API bloqueia DELETE em chats abertos e não suporta PATCH parcial:
+    1. Baixa o objeto completo da conversa ativa.
+    2. Modifica localmente o status para 'Closed' e open=False.
+    3. Devolve o objeto inteiro atualizado via PUT.
+
+    Args:
+        contact_id (str): ID do contato dono da conversa.
+
+    Returns:
+        requests.Response: Resultado da operação de fechamento.
     """
     chat_id_para_fechar = None
-    chat_data_completo = None  # Variável para guardar o objeto inteiro
+    chat_data_completo = None  # Armazena o JSON completo do chat
 
-    # --- TENTATIVA 1: Busca o Chat Aberto ---
+    # --- PASSO 1: Identificar a Conversa Aberta ---
+    # Busca no histórico recente do contato
     url_history = f"https://app-utalk.umbler.com/api/v1/contacts/{contact_id}/chats"
     params_history = {
         "organizationId": ORG_ID,
-        "ChatState": "All",
+        "ChatState": "All",  # Traz abertos, fechados, waiting, etc.
         "Take": 50,
         "Sort": "LastMessageDate",
         "Direction": "Desc"
@@ -177,40 +234,42 @@ def close_chat_safe(contact_id):
         if resp_check.status_code == 200:
             itens = resp_check.json().get('items', [])
             for chat in itens:
+                # Verifica flag booleana 'open' ou status textual
                 is_open = chat.get('open')
                 st = str(chat.get('status') or '').upper()
 
+                # Se estiver tecnicamente aberto ou status não for finalizado
                 if is_open is True or (st and st not in ["CLOSED", "RESOLVED", "CANCELED"]):
                     chat_id_para_fechar = chat.get('id')
-                    chat_data_completo = chat  # Guardamos TUDO aqui
+                    chat_data_completo = chat  # CLONE: Guarda o objeto para reenvio
                     break
     except Exception as e:
-        print(f"Erro Busca: {e}")
+        print(f"Erro ao buscar histórico de chat: {e}")
 
+    # Validação: Se não achou nada para fechar, retorna 404 simulado
     if not chat_id_para_fechar or not chat_data_completo:
         class MockResponse:
             status_code = 404
-            text = "Nenhuma conversa aberta encontrada."
+            text = "Nenhuma conversa ativa encontrada para este contato."
 
         return MockResponse()
 
-    # --- PASSO 2: MODIFICAR O OBJETO NA MEMÓRIA ---
-    print(f"🔒 Preparando fechamento do chat {chat_id_para_fechar}...")
+    # --- PASSO 2: Modificação em Memória ---
+    print(f"🔒 Preparando payload de fechamento para chat {chat_id_para_fechar}...")
 
-    # Forçamos os dados de fechamento no objeto que baixamos
+    # Força os estados de fechamento no objeto clonado
     chat_data_completo['open'] = False
     chat_data_completo['status'] = "Closed"
 
-    # Algumas APIs não gostam que enviemos campos de leitura (como lastMessage) de volta no PUT.
-    # Se der erro 400, pode ser necessário remover esses campos, mas vamos tentar enviar tudo primeiro
-    # para garantir que não faltem dados obrigatórios.
+    # Nota: Se a API começar a recusar campos como 'lastMessage', removê-los aqui:
+    # if 'lastMessage' in chat_data_completo: del chat_data_completo['lastMessage']
 
-    # --- PASSO 3: SALVAR COM PUT (SUBSTITUIÇÃO) ---
+    # --- PASSO 3: Atualização Completa (PUT) ---
     url_put = f"https://app-utalk.umbler.com/api/v1/chats/{chat_id_para_fechar}"
     params_put = {"organizationId": ORG_ID}
 
     try:
-        # Enviamos o JSON modificado de volta
+        # Envia o JSON modificado substituindo o anterior
         response = requests.put(url_put, headers=HEADERS, params=params_put, json=chat_data_completo)
         return response
     except Exception as e:
@@ -221,22 +280,30 @@ def close_chat_safe(contact_id):
         return MockResponse()
 
 
-def search_contact_by_text(query):
+def search_contact_by_text(query: str) -> List[Dict]:
     """
-    Busca inteligente:
-    1. Procura primeiro nos CHATS ABERTOS (para achar quem está falando agora).
-    2. Depois procura na lista geral de CONTATOS (para achar antigos).
+    Realiza uma Busca Inteligente Híbrida.
+
+    Fluxo de Busca:
+    1. Prioridade: Busca nos CHATS ABERTOS (Geralmente o usuário quer fechar quem está falando).
+    2. Fallback: Busca na base geral de CONTATOS (Caso seja um contato antigo/fechado).
+
+    Args:
+        query (str): Texto para busca (Nome, Telefone ou ID).
+
+    Returns:
+        List[Dict]: Lista de contatos únicos encontrados.
     """
     resultados = []
-    ids_encontrados = set()  # Para evitar duplicatas
+    ids_encontrados = set()  # Set para garantir unicidade (evita duplicatas na tabela)
     q = str(query).lower().strip()
 
-    # --- 1. BUSCA EM CHATS ABERTOS (Prioridade) ---
+    # --- ESTRATÉGIA 1: Buscar em Chats Ativos ---
     url_chats = "https://app-utalk.umbler.com/api/v1/chats"
     params_chats = {
         "organizationId": ORG_ID,
-        "status": "OPEN",  # Busca só nos abertos
-        "Take": 100  # Analisa as últimas 100 conversas
+        "status": "OPEN",  # Filtro de API: Apenas abertos
+        "Take": 100
     }
 
     try:
@@ -245,31 +312,29 @@ def search_contact_by_text(query):
             itens_chat = resp_chat.json().get('items', [])
 
             for chat in itens_chat:
-                # Extrai o contato de dentro do chat
+                # O objeto chat contem um sub-objeto 'contact'
                 contact = chat.get('contact', {})
                 if not contact: continue
 
-                # Normaliza dados para busca
+                # Normalização para comparação (Case insensitive)
                 nome = str(contact.get('name') or contact.get('pushName') or "").lower()
                 fone = str(contact.get('identifier') or contact.get('phoneNumber') or "").lower()
 
-                # Se encontrou o texto no nome ou telefone
                 if q in nome or q in fone:
                     c_id = contact.get('id')
                     if c_id and c_id not in ids_encontrados:
-                        # Adiciona à lista de resultados
                         resultados.append(contact)
                         ids_encontrados.add(c_id)
     except Exception as e:
-        print(f"Erro ao buscar chats: {e}")
+        print(f"Erro na busca de chats: {e}")
 
-    # --- 2. BUSCA EM CONTATOS (Complementar) ---
-    # Se já achou o que queria nos chats, nem precisaria ir aqui, mas mantemos para garantir
+    # --- ESTRATÉGIA 2: Buscar na Base Geral ---
+    # Só executa se o usuário pesquisar algo, complementando a busca anterior
     url_contacts = "https://app-utalk.umbler.com/api/v1/contacts/"
     params_contacts = {
         "organizationId": ORG_ID,
         "Skip": 0,
-        "Take": 100,
+        "Take": 100,  # Limite de segurança para performance
         "Behavior": "GetSliceOnly"
     }
 
@@ -284,10 +349,11 @@ def search_contact_by_text(query):
 
                 if q in nome or q in fone:
                     c_id = c.get('id')
+                    # Só adiciona se não foi achado na etapa anterior
                     if c_id and c_id not in ids_encontrados:
                         resultados.append(c)
                         ids_encontrados.add(c_id)
     except Exception:
-        pass
+        pass  # Falhas silenciosas aqui são aceitáveis (apenas retorna o que achou antes)
 
     return resultados
