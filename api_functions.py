@@ -177,32 +177,71 @@ def close_chat(chat_id):
 
 def search_contact_by_text(query):
     """
-    Busca contatos recentes e filtra pelo texto (Nome ou Telefone).
+    Busca inteligente:
+    1. Procura primeiro nos CHATS ABERTOS (para achar quem está falando agora).
+    2. Depois procura na lista geral de CONTATOS (para achar antigos).
     """
-    url = "https://app-utalk.umbler.com/api/v1/contacts/"
-    params = {
+    resultados = []
+    ids_encontrados = set()  # Para evitar duplicatas
+    q = str(query).lower().strip()
+
+    # --- 1. BUSCA EM CHATS ABERTOS (Prioridade) ---
+    url_chats = "https://app-utalk.umbler.com/api/v1/chats"
+    params_chats = {
+        "organizationId": ORG_ID,
+        "status": "OPEN",  # Busca só nos abertos
+        "Take": 100  # Analisa as últimas 100 conversas
+    }
+
+    try:
+        resp_chat = requests.get(url_chats, headers=HEADERS, params=params_chats)
+        if resp_chat.status_code == 200:
+            itens_chat = resp_chat.json().get('items', [])
+
+            for chat in itens_chat:
+                # Extrai o contato de dentro do chat
+                contact = chat.get('contact', {})
+                if not contact: continue
+
+                # Normaliza dados para busca
+                nome = str(contact.get('name') or contact.get('pushName') or "").lower()
+                fone = str(contact.get('identifier') or contact.get('phoneNumber') or "").lower()
+
+                # Se encontrou o texto no nome ou telefone
+                if q in nome or q in fone:
+                    c_id = contact.get('id')
+                    if c_id and c_id not in ids_encontrados:
+                        # Adiciona à lista de resultados
+                        resultados.append(contact)
+                        ids_encontrados.add(c_id)
+    except Exception as e:
+        print(f"Erro ao buscar chats: {e}")
+
+    # --- 2. BUSCA EM CONTATOS (Complementar) ---
+    # Se já achou o que queria nos chats, nem precisaria ir aqui, mas mantemos para garantir
+    url_contacts = "https://app-utalk.umbler.com/api/v1/contacts/"
+    params_contacts = {
         "organizationId": ORG_ID,
         "Skip": 0,
-        "Take": 100,  # Busca nos últimos 100 para ter mais chance de achar
+        "Take": 100,
         "Behavior": "GetSliceOnly"
     }
 
     try:
-        response = requests.get(url, headers=HEADERS, params=params)
-        if response.status_code == 200:
-            todos = response.json().get('items', [])
-            resultados = []
-            q = str(query).lower().strip()
+        resp_contacts = requests.get(url_contacts, headers=HEADERS, params=params_contacts)
+        if resp_contacts.status_code == 200:
+            itens_contact = resp_contacts.json().get('items', [])
 
-            for c in todos:
-                # Previne erro se o campo for None
+            for c in itens_contact:
                 nome = str(c.get('name') or c.get('pushName') or "").lower()
                 fone = str(c.get('phoneNumber') or c.get('identifier') or "").lower()
 
-                # Se o texto digitado estiver no nome OU no telefone
                 if q in nome or q in fone:
-                    resultados.append(c)
-            return resultados
-        return []
+                    c_id = c.get('id')
+                    if c_id and c_id not in ids_encontrados:
+                        resultados.append(c)
+                        ids_encontrados.add(c_id)
     except Exception:
-        return []
+        pass
+
+    return resultados
