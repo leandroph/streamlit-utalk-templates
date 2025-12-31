@@ -173,3 +173,36 @@ def close_chat(chat_id):
                 text = str(e)
 
             return MockResponse()
+
+
+def search_contact_by_text(query):
+    """
+    Busca contatos recentes e filtra pelo texto (Nome ou Telefone).
+    """
+    url = "https://app-utalk.umbler.com/api/v1/contacts/"
+    params = {
+        "organizationId": ORG_ID,
+        "Skip": 0,
+        "Take": 100,  # Busca nos últimos 100 para ter mais chance de achar
+        "Behavior": "GetSliceOnly"
+    }
+
+    try:
+        response = requests.get(url, headers=HEADERS, params=params)
+        if response.status_code == 200:
+            todos = response.json().get('items', [])
+            resultados = []
+            q = str(query).lower().strip()
+
+            for c in todos:
+                # Previne erro se o campo for None
+                nome = str(c.get('name') or c.get('pushName') or "").lower()
+                fone = str(c.get('phoneNumber') or c.get('identifier') or "").lower()
+
+                # Se o texto digitado estiver no nome OU no telefone
+                if q in nome or q in fone:
+                    resultados.append(c)
+            return resultados
+        return []
+    except Exception:
+        return []

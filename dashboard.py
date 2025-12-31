@@ -3,7 +3,7 @@ from datetime import time
 import streamlit as st
 import pandas as pd
 import re
-from api_functions import get_templates, create_template, delete_template, get_contacts, close_chat
+from api_functions import get_templates, create_template, delete_template, get_contacts, close_chat, search_contact_by_text
 
 # Configuração da Página
 st.set_page_config(page_title="Painel Umbler uTalk", page_icon="💬", layout="wide")
@@ -318,64 +318,81 @@ elif menu == "Criar Template":
                     st.error(f"❌ Erro inesperado ({res.status_code}): {res.text}")
 
 # ==============================================================================
-# 🚫 ABA 3: FECHAR CONVERSAS (Via Contatos)
+# 🚫 ABA 3: FECHAR CONVERSAS (COM BUSCA INTEGRADA)
 # ==============================================================================
 elif menu == "Fechar Conversas":
     st.header("🚫 Encerrar Atendimentos")
-    st.info("Lista de contatos recentes. Selecione para fechar o chat.")
 
-    if st.button("🔄 Atualizar Lista"):
-        if 'lista_contatos' in st.session_state:
-            del st.session_state['lista_contatos']
+    # --- ÁREA DE BUSCA ---
+    col_busca, col_btn = st.columns([4, 1])
+
+    with col_busca:
+        termo_busca = st.text_input("🔍 Buscar Contato (Nome ou Telefone):", placeholder="Digite para filtrar...")
+
+    with col_btn:
+        st.write("")  # Espaço para alinhar
+        st.write("")
+        btn_atualizar = st.button("🔄 Recarregar")
+
+    # --- LÓGICA DE CARREGAMENTO ---
+    # Se houver busca digitada, usamos a função de busca.
+    # Se não, usamos a função padrão (get_contacts) que traz os recentes.
+
+    if btn_atualizar:
+        # Limpa cache para forçar atualização
+        if 'lista_contatos' in st.session_state: del st.session_state['lista_contatos']
         st.rerun()
 
-    # --- Carrega Contatos ---
-    if 'lista_contatos' not in st.session_state:
-        with st.spinner("Buscando contatos..."):
-            st.session_state['lista_contatos'] = get_contacts()
+    # Define qual função usar baseada no que o usuário digitou
+    if termo_busca and len(termo_busca) >= 2:
+        # MODO BUSCA
+        with st.spinner(f"Filtrando por '{termo_busca}'..."):
+            # Não usamos cache fixo aqui para permitir buscas dinâmicas
+            contatos = search_contact_by_text(termo_busca)
+            st.caption(f"Exibindo resultados para: **{termo_busca}**")
+    else:
+        # MODO PADRÃO (RECENTES)
+        if 'lista_contatos' not in st.session_state:
+            with st.spinner("Carregando contatos recentes..."):
+                st.session_state['lista_contatos'] = get_contacts()
+        contatos = st.session_state['lista_contatos']
+        st.caption("Exibindo contatos recentes.")
 
-    contatos = st.session_state['lista_contatos']
-
+    # --- EXIBIÇÃO DA TABELA ---
     if contatos:
-        # Prepara os dados para exibir
         dados_tabela = []
         for c in contatos:
-            # 1. PEGAR O ID (Fundamental para fechar)
+            # 1. ID e TELEFONE
             contact_id = c.get('id')
-
-            # 2. PEGAR O TELEFONE (Correção: O campo no seu JSON é 'phoneNumber')
             telefone = c.get('phoneNumber') or c.get('identifier') or "-"
 
-            # 3. PEGAR O NOME
-            # Lógica: Se o nome for null, usamos o telefone como nome para identificar a pessoa
+            # 2. TRATAMENTO DE NOME (Igual fizemos antes)
             raw_name = c.get('name') or c.get('pushName')
             if raw_name:
                 nome_cliente = raw_name
             elif telefone != "-":
-                nome_cliente = telefone # Usa o número se não tiver nome (Evita linha em branco)
+                nome_cliente = telefone
             else:
                 nome_cliente = "Desconhecido"
 
-            # 4. DATA (Usamos a data de criação, pois lastMessageDate não vem nesse endpoint)
+            # 3. DATA
             last_date = c.get('createdAtUTC', '-')
 
             dados_tabela.append({
                 "contact_id": contact_id,
                 "Cliente": nome_cliente,
                 "Telefone": telefone,
-                "Última Mensagem": "-", # Esse endpoint não traz o conteúdo da mensagem
-                "Data": last_date
+                "Data Criação": last_date
             })
 
         df_chats = pd.DataFrame(dados_tabela)
 
-        # Tratamento de Data Visual
-        if "Data" in df_chats.columns:
-            # Converte data UTC para formato brasileiro
-            df_chats["Data"] = pd.to_datetime(df_chats["Data"], errors='coerce').dt.strftime('%d/%m/%Y %H:%M').fillna("-")
+        # Formata data
+        if "Data Criação" in df_chats.columns:
+            df_chats["Data Criação"] = pd.to_datetime(df_chats["Data Criação"], errors='coerce').dt.strftime(
+                '%d/%m/%Y %H:%M').fillna("-")
 
-        # Mostra a Tabela
-        st.markdown("👇 **Selecione um contato para finalizar o atendimento**")
+        st.markdown("👇 **Selecione o contato na lista abaixo:**")
 
         event_chat = st.dataframe(
             df_chats,
@@ -384,7 +401,7 @@ elif menu == "Fechar Conversas":
             on_select="rerun",
             hide_index=True,
             column_config={
-                "contact_id": None  # Esconde o ID técnico
+                "contact_id": None
             }
         )
 
@@ -394,27 +411,32 @@ elif menu == "Fechar Conversas":
             contato_selecionado = df_chats.iloc[idx]
 
             st.divider()
-            st.markdown(f"### 👤 Cliente: {contato_selecionado['Cliente']}")
-            st.markdown(f"📱 **Telefone:** {contato_selecionado['Telefone']}")
 
-            # Botão de Confirmação
-            col1, col2 = st.columns([1, 4])
-            with col1:
-                # Botão com chave única baseada no ID do contato
-                if st.button("✅ Encerrar Chat", type="primary", key=f"btn_close_{contato_selecionado['contact_id']}"):
-                    with st.spinner("Encerrando atendimento..."):
+            # Caixa de destaque para a ação
+            with st.container(border=True):
+                st.subheader(f"Fechar conversa de: {contato_selecionado['Cliente']}")
+                st.markdown(f"📱 **Telefone:** {contato_selecionado['Telefone']}")
+                st.warning("⚠️ Isso irá encerrar/arquivar todas as sessões abertas com este contato.")
 
-                        # Chama a função de fechar passando o ID do Contato
+                if st.button("✅ Confirmar Encerramento", type="primary",
+                             key=f"btn_close_{contato_selecionado['contact_id']}"):
+                    with st.spinner("Processando..."):
                         res = close_chat(contato_selecionado['contact_id'])
 
                         if res.status_code == 200 or res.status_code == 204:
-                            st.success(f"Conversas de {contato_selecionado['Cliente']} encerradas!")
-                            # Limpa cache para atualizar
-                            del st.session_state['lista_contatos']
-                            time.sleep(1)
+                            st.success(f"Feito! Atendimento de {contato_selecionado['Cliente']} encerrado.")
+
+                            # Limpa a lista para atualizar o status visualmente
+                            if 'lista_contatos' in st.session_state:
+                                del st.session_state['lista_contatos']
+
+                            time.sleep(1.5)
                             st.rerun()
                         else:
                             st.error(f"Erro ao fechar: {res.text}")
 
     else:
-        st.warning("Nenhum contato encontrado.")
+        if termo_busca:
+            st.warning(f"Nenhum contato encontrado contendo '{termo_busca}'.")
+        else:
+            st.info("Nenhum contato recente encontrado.")
