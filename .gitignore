@@ -1,5 +1,6 @@
 # Ignorar o arquivo de configuração na raiz
 config.py
+teste.py
 
 # Ignorar arquivos temporários do Python
 __pycache__/

@@ -123,3 +123,53 @@ def delete_template(template_id):
             text = str(e)
 
         return MockResponse()
+
+
+# --- NOVAS FUNÇÕES DE CHAT ---
+
+def get_contacts():
+    """
+    Busca a lista de contatos diretamente.
+    Rota: GET /v1/contacts/
+    """
+    url = "https://app-utalk.umbler.com/api/v1/contacts/"
+
+    params = {
+        "organizationId": ORG_ID,
+        "Skip": 0,
+        "Take": 50,
+        "Behavior": "GetSliceOnly"
+    }
+
+    try:
+        response = requests.get(url, headers=HEADERS, params=params)
+        if response.status_code == 200:
+            return response.json().get('items', [])
+        return []
+    except Exception as e:
+        return []
+
+def close_chat(chat_id):
+    def close_chat(contact_id):
+        """
+        Encerra o atendimento fechando as conversas do contato.
+        Rota: DELETE /v1/contacts/{id}?chatAction=Close
+        """
+        # A rota é baseada no ID do CONTATO
+        url = f"https://app-utalk.umbler.com/api/v1/contacts/{contact_id}"
+
+        params = {
+            "organizationId": ORG_ID,
+            "chatAction": "Close"  # Ação mágica que fecha o chat
+        }
+
+        try:
+            # Usamos DELETE conforme a estrutura da documentação sugere (ID a ser excluído)
+            response = requests.delete(url, headers=HEADERS, params=params)
+            return response
+        except Exception as e:
+            class MockResponse:
+                status_code = 500
+                text = str(e)
+
+            return MockResponse()
