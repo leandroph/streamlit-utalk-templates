@@ -179,7 +179,7 @@ elif menu == "Criar Template":
         st.balloons()
         st.session_state.exibir_sucesso = False
 
-        # --- 2. INICIALIZAÇÃO SEGURA ---
+    # --- 2. INICIALIZAÇÃO SEGURA ---
     if 'form_nome' not in st.session_state: st.session_state.form_nome = ""
     if 'form_corpo' not in st.session_state: st.session_state.form_corpo = ""
     # Inicializa dados da tabela se não existirem
@@ -190,7 +190,6 @@ elif menu == "Criar Template":
         st.session_state.form_cat = "MARKETING"
 
     # --- 3. PREENCHIMENTO AUTOMÁTICO (EDITAR) ---
-    # Essa parte foi migrada para dentro da show_template_details, mas mantemos o cleanup se houver resquício
     if 'edit_data' in st.session_state:
         del st.session_state['edit_data']
 
@@ -218,7 +217,6 @@ elif menu == "Criar Template":
             df_vars_input,
             num_rows="dynamic",
             column_config={
-                # CORREÇÃO: Removemos 'placeholder' e usamos 'help' e 'width'
                 "Nome": st.column_config.TextColumn(
                     "Nome da Variável",
                     required=True,
@@ -232,7 +230,7 @@ elif menu == "Criar Template":
                     help="Ex: João Silva"
                 )
             },
-            use_container_width=True,
+            width="stretch", # <--- CORREÇÃO AQUI (Era use_container_width=True)
             key="editor_variaveis"
         )
 
@@ -254,34 +252,24 @@ elif menu == "Criar Template":
                 st.error("🚫 O texto NÃO pode terminar com uma variável.")
                 erro_encontrado = True
 
-            # --- 🆕 VALIDAÇÃO DE CONTAGEM DE VARIÁVEIS ---
-            # 1. Conta quantas {{n}} existem no texto (ex: {{1}}, {{2}} = 2 variáveis)
+            # --- VALIDAÇÃO DE CONTAGEM DE VARIÁVEIS ---
             vars_no_texto = re.findall(r"\{\{(\d+)\}\}", corpo)
-            qtd_vars_texto = len(
-                set(vars_no_texto))  # Usa set para contar únicos (se usar {{1}} duas vezes conta como 1)
+            qtd_vars_texto = len(set(vars_no_texto))
 
-            # 2. Conta quantas linhas válidas tem na tabela
-            # Filtra linhas vazias para não contar errado
             linhas_validas = edited_df[edited_df["Nome"].str.strip() != ""]
             qtd_vars_tabela = len(linhas_validas)
 
             if qtd_vars_texto != qtd_vars_tabela:
-                st.error(
-                    f"❌ Contagem Incorreta: O texto pede {qtd_vars_texto} variáveis, mas você definiu {qtd_vars_tabela} na tabela.")
-                st.info(
-                    f"💡 Dica: Se você usou até {{{{ {qtd_vars_texto} }}}} no texto, a tabela precisa ter exatamente {qtd_vars_texto} linhas preenchidas.")
+                st.error(f"❌ Contagem Incorreta: O texto pede {qtd_vars_texto} variáveis, mas você definiu {qtd_vars_tabela} na tabela.")
+                st.info(f"💡 Dica: Se você usou até {{{{ {qtd_vars_texto} }}}} no texto, a tabela precisa ter exatamente {qtd_vars_texto} linhas preenchidas.")
                 erro_encontrado = True
-            # ---------------------------------------------
 
             if not erro_encontrado:
                 variaveis_payload = []
 
-                # Itera sobre as linhas VALIDAS da tabela
                 for index, row in linhas_validas.iterrows():
                     n = row["Nome"]
                     e = row["Exemplo"]
-
-                    # Garante que tem exemplo
                     ex_final = e if (e and pd.notna(e) and str(e).strip() != "") else f"Ex {n}"
                     variaveis_payload.append({"name": str(n).strip(), "example": str(ex_final).strip()})
 
@@ -297,26 +285,21 @@ elif menu == "Criar Template":
                 elif res.status_code == 400:
                     try:
                         erro_data = res.json()
-                        lista_erros = erro_data.get('errors', {}).get('Content', [])  # Tenta pegar erros de conteúdo
+                        lista_erros = erro_data.get('errors', {}).get('Content', [])
                         erros_gerais = erro_data.get('errors', {})
 
                         if "VariableCannotBeAtTheBeginningOrEnd" in lista_erros:
                             st.error("❌ ERRO DE FORMATAÇÃO (WhatsApp):")
                             st.warning("O texto não pode começar ou terminar com variável {{n}}.")
-
-                        # Tratamento específico para o erro que você teve agora
-                        elif "Variables" in erros_gerais and "NumberOfVariablesIsNotTheSame" in erros_gerais[
-                            "Variables"]:
+                        elif "Variables" in erros_gerais and "NumberOfVariablesIsNotTheSame" in erros_gerais["Variables"]:
                             st.error("❌ Erro de Quantidade: O número de variáveis no texto não bate com a tabela.")
-
                         else:
                             st.error("❌ Erro de Validação da API:")
-                            st.json(erro_data)  # Mostra o JSON completo para facilitar debug
+                            st.json(erro_data)
                     except:
                         st.error(f"❌ Erro 400: {res.text}")
                 else:
                     st.error(f"❌ Erro inesperado ({res.status_code}): {res.text}")
-
 # ==============================================================================
 # 🚫 ABA 3: FECHAR CONVERSAS (MODO LIMPO - SÓ EXIBE BUSCA)
 # ==============================================================================
