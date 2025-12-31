@@ -3,7 +3,7 @@ import time
 import streamlit as st
 import pandas as pd
 import re
-from api_functions import get_templates, create_template, delete_template, get_contacts, close_chat, search_contact_by_text
+from api_functions import get_templates, create_template, delete_template, get_contacts, close_chat_safe, search_contact_by_text
 
 # Configuração da Página
 st.set_page_config(page_title="Painel Umbler uTalk", page_icon="💬", layout="wide")
@@ -318,7 +318,7 @@ elif menu == "Criar Template":
                     st.error(f"❌ Erro inesperado ({res.status_code}): {res.text}")
 
 # ==============================================================================
-# 🚫 ABA 3: FECHAR CONVERSAS (COM BUSCA INTEGRADA)
+# 🚫 ABA 3: FECHAR CONVERSAS (MODO LIMPO - SÓ EXIBE BUSCA)
 # ==============================================================================
 elif menu == "Fechar Conversas":
     st.header("🚫 Encerrar Atendimentos")
@@ -327,46 +327,43 @@ elif menu == "Fechar Conversas":
     col_busca, col_btn = st.columns([4, 1])
 
     with col_busca:
-        termo_busca = st.text_input("🔍 Buscar Contato (Nome ou Telefone):", placeholder="Digite para filtrar...")
+        termo_busca = st.text_input("🔍 Buscar Contato (Nome ou Telefone):", placeholder="Digite para pesquisar...")
 
     with col_btn:
-        st.write("")  # Espaço para alinhar
+        st.write("")  # Espaço para alinhar visualmente
         st.write("")
-        btn_atualizar = st.button("🔄 Recarregar")
+        # Botão para limpar a busca/tela
+        if st.button("❌ Limpar"):
+            st.rerun()
 
-    # --- LÓGICA DE CARREGAMENTO ---
-    # Se houver busca digitada, usamos a função de busca.
-    # Se não, usamos a função padrão (get_contacts) que traz os recentes.
+    # Variável inicial vazia (para não exibir nada se não tiver busca)
+    contatos = []
 
-    if btn_atualizar:
-        # Limpa cache para forçar atualização
-        if 'lista_contatos' in st.session_state: del st.session_state['lista_contatos']
-        st.rerun()
-
-    # Define qual função usar baseada no que o usuário digitou
+    # --- LÓGICA DE BUSCA ---
     if termo_busca and len(termo_busca) >= 2:
-        # MODO BUSCA
-        with st.spinner(f"Filtrando por '{termo_busca}'..."):
-            # Não usamos cache fixo aqui para permitir buscas dinâmicas
+        with st.spinner(f"Procurando por '{termo_busca}'..."):
+            # Usa a função de busca inteligente (Chats + Contatos)
             contatos = search_contact_by_text(termo_busca)
-            st.caption(f"Exibindo resultados para: **{termo_busca}**")
-    else:
-        # MODO PADRÃO (RECENTES)
-        if 'lista_contatos' not in st.session_state:
-            with st.spinner("Carregando contatos recentes..."):
-                st.session_state['lista_contatos'] = get_contacts()
-        contatos = st.session_state['lista_contatos']
-        st.caption("Exibindo contatos recentes.")
 
-    # --- EXIBIÇÃO DA TABELA ---
+        if not contatos:
+            st.warning(f"Nenhum contato encontrado para: '{termo_busca}'")
+
+    elif termo_busca:
+        st.caption("Digite pelo menos 2 caracteres para iniciar a busca.")
+    else:
+        st.info("👆 Digite o nome ou telefone acima para encontrar o contato.")
+
+    # --- EXIBIÇÃO DA TABELA (SÓ RENDERIZA SE TIVER RESULTADO) ---
     if contatos:
+        st.success(f"{len(contatos)} contato(s) encontrado(s).")
+
         dados_tabela = []
         for c in contatos:
             # 1. ID e TELEFONE
             contact_id = c.get('id')
             telefone = c.get('phoneNumber') or c.get('identifier') or "-"
 
-            # 2. TRATAMENTO DE NOME (Igual fizemos antes)
+            # 2. TRATAMENTO DE NOME
             raw_name = c.get('name') or c.get('pushName')
             if raw_name:
                 nome_cliente = raw_name
@@ -401,7 +398,7 @@ elif menu == "Fechar Conversas":
             on_select="rerun",
             hide_index=True,
             column_config={
-                "contact_id": None
+                "contact_id": None  # Oculta ID técnico
             }
         )
 
@@ -416,27 +413,21 @@ elif menu == "Fechar Conversas":
             with st.container(border=True):
                 st.subheader(f"Fechar conversa de: {contato_selecionado['Cliente']}")
                 st.markdown(f"📱 **Telefone:** {contato_selecionado['Telefone']}")
-                st.warning("⚠️ Isso irá encerrar/arquivar todas as sessões abertas com este contato.")
+                st.warning("⚠️ Isso irá encerrar a conversa atual deste contato.")
 
                 if st.button("✅ Confirmar Encerramento", type="primary",
                              key=f"btn_close_{contato_selecionado['contact_id']}"):
                     with st.spinner("Processando..."):
-                        res = close_chat(contato_selecionado['contact_id'])
+
+                        # Chama a função segura
+                        res = close_chat_safe(contato_selecionado['contact_id'])
 
                         if res.status_code == 200 or res.status_code == 204:
                             st.success(f"Feito! Atendimento de {contato_selecionado['Cliente']} encerrado.")
-
-                            # Limpa a lista para atualizar o status visualmente
-                            if 'lista_contatos' in st.session_state:
-                                del st.session_state['lista_contatos']
-
                             time.sleep(1.5)
                             st.rerun()
+
+                        elif res.status_code == 404:
+                            st.warning("⚠️ Nenhuma conversa ativa encontrada para fechar.")
                         else:
                             st.error(f"Erro ao fechar: {res.text}")
-
-    else:
-        if termo_busca:
-            st.warning(f"Nenhum contato encontrado contendo '{termo_busca}'.")
-        else:
-            st.info("Nenhum contato recente encontrado.")

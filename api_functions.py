@@ -1,6 +1,7 @@
 import requests
 import streamlit as st
 import os
+import json
 
 # --- LÓGICA DE IMPORTAÇÃO HÍBRIDA ---
 try:
@@ -150,30 +151,69 @@ def get_contacts():
         return []
 
 
-def close_chat(contact_id):
+def close_chat_safe(contact_id):
     """
-    Encerra o atendimento fechando as conversas do contato.
-    Rota: DELETE /v1/contacts/{id}?chatAction=Close
+    Versão V9 (Estratégia GET + PUT Completo):
+    Já que PATCH (edição parcial) e DELETE (apagar) são bloqueados:
+    1. Baixamos os dados completos do chat.
+    2. Alteramos 'open' para False na memória.
+    3. Enviamos o objeto INTEIRO de volta com PUT.
     """
-    url = f"https://app-utalk.umbler.com/api/v1/contacts/{contact_id}"
+    chat_id_para_fechar = None
+    chat_data_completo = None  # Variável para guardar o objeto inteiro
 
-    # Parâmetros exigidos pela documentação
-    params = {
+    # --- TENTATIVA 1: Busca o Chat Aberto ---
+    url_history = f"https://app-utalk.umbler.com/api/v1/contacts/{contact_id}/chats"
+    params_history = {
         "organizationId": ORG_ID,
-        "chatAction": "Close"  # Ação "Fechar" conforme sua documentação
+        "ChatState": "All",
+        "Take": 50,
+        "Sort": "LastMessageDate",
+        "Direction": "Desc"
     }
 
     try:
-        # Método DELETE conforme "O ID do contato a ser excluído" (caminho)
-        response = requests.delete(url, headers=HEADERS, params=params)
+        resp_check = requests.get(url_history, headers=HEADERS, params=params_history)
+        if resp_check.status_code == 200:
+            itens = resp_check.json().get('items', [])
+            for chat in itens:
+                is_open = chat.get('open')
+                st = str(chat.get('status') or '').upper()
 
-        # --- O SEGREDO ESTÁ AQUI: TEM QUE TER O RETURN ---
-        return response
-
+                if is_open is True or (st and st not in ["CLOSED", "RESOLVED", "CANCELED"]):
+                    chat_id_para_fechar = chat.get('id')
+                    chat_data_completo = chat  # Guardamos TUDO aqui
+                    break
     except Exception as e:
-        print(f"Erro na função close_chat: {e}")
+        print(f"Erro Busca: {e}")
 
-        # Cria uma resposta falsa para o dashboard não quebrar com 'NoneType'
+    if not chat_id_para_fechar or not chat_data_completo:
+        class MockResponse:
+            status_code = 404
+            text = "Nenhuma conversa aberta encontrada."
+
+        return MockResponse()
+
+    # --- PASSO 2: MODIFICAR O OBJETO NA MEMÓRIA ---
+    print(f"🔒 Preparando fechamento do chat {chat_id_para_fechar}...")
+
+    # Forçamos os dados de fechamento no objeto que baixamos
+    chat_data_completo['open'] = False
+    chat_data_completo['status'] = "Closed"
+
+    # Algumas APIs não gostam que enviemos campos de leitura (como lastMessage) de volta no PUT.
+    # Se der erro 400, pode ser necessário remover esses campos, mas vamos tentar enviar tudo primeiro
+    # para garantir que não faltem dados obrigatórios.
+
+    # --- PASSO 3: SALVAR COM PUT (SUBSTITUIÇÃO) ---
+    url_put = f"https://app-utalk.umbler.com/api/v1/chats/{chat_id_para_fechar}"
+    params_put = {"organizationId": ORG_ID}
+
+    try:
+        # Enviamos o JSON modificado de volta
+        response = requests.put(url_put, headers=HEADERS, params=params_put, json=chat_data_completo)
+        return response
+    except Exception as e:
         class MockResponse:
             status_code = 500
             text = str(e)
