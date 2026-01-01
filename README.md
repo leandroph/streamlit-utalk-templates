@@ -1,37 +1,53 @@
-# 📱 Streamlit uTalk Dashboard & Template Creator
+# 🤖 Streamlit uTalk Dashboard & Template Creator
 
-![Python](https://img.shields.io/badge/Python-3.9%2B-blue)
-![Streamlit](https://img.shields.io/badge/Streamlit-1.28%2B-ff4b4b)
+![Python](https://img.shields.io/badge/Python-3.9%2B-3776AB?logo=python&logoColor=white)
+![Streamlit](https://img.shields.io/badge/Streamlit-1.28%2B-FF4B4B?logo=streamlit&logoColor=white)
 ![Status](https://img.shields.io/badge/Status-Active-success)
+![API](https://img.shields.io/badge/API-Umbler%20uTalk-orange)
 
-Painel de controle visual (Front-end) desenvolvido em **Streamlit** para gerenciar a API do **Umbler uTalk**. Este projeto permite criar templates de WhatsApp com validação de regras, visualizar status de aprovação e ler o histórico de conversas dos clientes em uma interface amigável.
+Painel administrativo (Frontend) desenvolvido para gerenciar a API do **Umbler uTalk** (WhatsApp Business API).
 
----
-
-## ✨ Funcionalidades
-
-### 1. 🛠️ Criador de Templates (Template Builder)
-- Interface visual para criação de templates (Marketing, Utilidade, Autenticação).
-- **Validação Automática:** Impede o envio de templates que violam as regras do WhatsApp (ex: começar ou terminar frases com variáveis `{{1}}`).
-- Gerenciamento fácil de variáveis e exemplos.
-
-### 2. 📂 Gerenciador de Templates
-- Listagem completa de todos os templates cadastrados.
-- Visualização rápida de Status (`APPROVED`, `PENDING`, `REJECTED`).
-- IDs e Categorias visíveis para facilitar a integração.
-
-### 3. 📨 Inbox de Visualização (Chats)
-- Leitura de chats em aberto estilo **WhatsApp Web**.
-- Diferenciação visual entre mensagens de **Cliente**, **Bot** e **Atendente**.
-- Filtro por cliente.
+Este projeto resolve dores comuns de quem usa a API crua: **criação facilitada de templates** (com validação de regras do Meta) e **encerramento seguro de atendimentos** sem perda de dados de contato.
 
 ---
 
-## 🚀 Como Rodar Localmente
+## ✨ Funcionalidades Principais
+
+### 1. 🛠️ Criador de Templates Inteligente
+Interface visual para criar templates HSM (Marketing, Utilidade, Autenticação) sem erro.
+- **Validação Regex em Tempo Real:** Impede o envio se o texto começar/terminar com variáveis (Regra estrita do WhatsApp).
+- **Controle de Variáveis:** Garante que o número de variáveis no texto (`{{1}}`, `{{2}}`) bata exatamente com os exemplos fornecidos.
+- **Feedback Visual:** Alertas claros de sucesso ou rejeição pela API.
+
+### 2. 🚫 Gestão de Atendimentos (Smart Close)
+Um sistema robusto para localizar e encerrar conversas travadas ou finalizadas.
+- **Busca Híbrida:** Pesquisa contatos simultaneamente em *Sessões Abertas* (prioridade) e na *Base Geral*.
+- **Encerramento Seguro (Safe Close):** Utiliza uma estratégia avançada de `GET + PUT (Full Update)` para alterar o status da conversa para `Closed` **sem excluir o contato** da agenda (contornando limitações de `DELETE` da API).
+- **Identificação Visual:** Mostra nome, telefone e data da última interação.
+
+### 3. 📂 Biblioteca de Templates
+- Listagem completa com paginação automática (Lazy Loading).
+- Visualização de Status com color code (`APPROVED` 🟢, `REJECTED` 🔴, `PENDING` 🟠).
+- Opção de **Clonar Template**: Usa um template existente como base para criar um novo.
+
+---
+
+## 📸 Screenshots
+
+*(Espaço reservado para você colocar prints da tela)*
+
+| Lista de Templates | Criar Template | Fechar Conversa |
+|:---:|:---:|:---:|
+| *Coloque print aqui* | *Coloque print aqui* | *Coloque print aqui* |
+
+---
+
+## 🚀 Instalação e Execução Local
 
 ### Pré-requisitos
-- Python 3.9 ou superior.
-- Conta na Umbler uTalk com Token de API.
+* Python 3.9+
+* Token da API uTalk (Organization ID e Channel ID)
+
 
 ### 1. Clonar o repositório
 ```bash
